@@ -9,11 +9,11 @@ def process_and_display_stats():
     passing_pairs = run_cointegration_analysis()
 
     # Step 2: Run z-score and half-life analysis on pairs passing cointegration
-    print("\nRunning z-score analysis for mean reversion...")
+    print("\nRunning z-score analysis and related z-score metrics..")
     zscore_results = [result for result in run_zscore_analysis(passing_pairs) if result is not None]
 
     # Step 3: Display results
-    print("\nCointegrated Pairs with Significant Z-scores and Mean Reversion Times:")
+    print("\nGenerated pair metrics:")
     for result in zscore_results:
         tick_icon = "✅"
         print(f"{result['Ax']} & {result['Bx']} - p: {result['p_value']:.4f} Z: {result['Z_score']} "
