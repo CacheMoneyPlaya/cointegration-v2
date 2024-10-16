@@ -17,4 +17,5 @@ def process_and_display_stats():
     for result in zscore_results:
         tick_icon = "✅"
         print(f"{result['Ax']} & {result['Bx']} - p: {result['p_value']:.4f} Z: {result['Z_score']} "
-              f"Half-life: {result['half_life']}H Mean Reversion Ratio: {result['mean_reversion_ratio']} {tick_icon}")
+              f"Half-life: {result['half_life']}H Mean Reversion Ratio: {result['mean_reversion_ratio']} "
+              f"Dominant Frequency: {result['has_dominant_frequency']} {tick_icon}")
