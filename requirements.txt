@@ -1,0 +1,6 @@
+binance
+ccxt
+schedule
+pytest
+black
+flake8
