@@ -18,7 +18,7 @@ CHARTS_DIR = 'StatsDisplay/SignalCharts'
 
 # Thresholds for determining cyclical behavior
 AUTO_CORRELATION_THRESHOLD = 0.1
-FREQUENCY_THRESHOLD = 0.1
+FREQUENCY_THRESHOLD = 0.7
 LAG_INTERVAL = 24
 
 def load_data(file_path):
@@ -34,6 +34,7 @@ def align_data(df1, df2):
 def calculate_zscore(series):
     """Calculate the Z-score for a series."""
     return (series - series.mean()) / series.std()
+
 def check_periodic_autocorrelation(z_scores, threshold=AUTO_CORRELATION_THRESHOLD, lag_interval=LAG_INTERVAL):
     """Check if a Z-score series has periodic autocorrelation peaks."""
     autocorr_values = [pd.Series(z_scores).autocorr(lag=i) for i in range(1, len(z_scores) // 2)]
@@ -118,8 +119,12 @@ def run_zscore_analysis(passing_pairs):
             continue
 
         has_dominant_frequency = (
-            1 if check_periodic_autocorrelation(z_scores) and check_dominant_frequency(z_scores) else 0
+            1 if check_dominant_frequency(z_scores) else 0
         )
+
+        # Skip pairs without a dominant frequency
+        if has_dominant_frequency == 0:
+            continue
 
         spread_mean = spread.mean()
         mean_reversion_ratio = round(np.exp(spread_mean), 5)

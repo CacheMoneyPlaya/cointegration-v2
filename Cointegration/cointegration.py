@@ -34,7 +34,7 @@ def run_cointegration_analysis():
         aligned_data_a, aligned_data_b = align_data(data_a, data_b)
 
         _, p_value, _ = coint(aligned_data_a, aligned_data_b)
-        if p_value < 0.05:
+        if p_value < 0.04:
             passing_pairs.append({
                 "Ax": pair["Ax"],
                 "Bx": pair["Bx"],
