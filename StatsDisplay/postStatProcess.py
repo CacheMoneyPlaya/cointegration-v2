@@ -6,16 +6,15 @@ def process_and_display_stats():
 
     # Step 1: Run cointegration analysis and get pairs with p < 0.05
     print("Running cointegration analysis...")
-    cointegration_results = run_cointegration_analysis()
+    passing_pairs = run_cointegration_analysis()
 
-    # Step 2: Run z-score analysis on pairs that passed cointegration analysis
+    # Step 2: Run z-score and half-life analysis on pairs passing cointegration
     print("\nRunning z-score analysis for mean reversion...")
-    zscore_results = [result for result in run_zscore_analysis() if result is not None]  # Filter out None results
+    zscore_results = [result for result in run_zscore_analysis(passing_pairs) if result is not None]
 
-    # Step 3: Display results with tick icon for all logged pairs
+    # Step 3: Display results
     print("\nCointegrated Pairs with Significant Z-scores and Mean Reversion Times:")
     for result in zscore_results:
         tick_icon = "✅"
         print(f"{result['Ax']} & {result['Bx']} - p: {result['p_value']:.4f} Z: {result['Z_score']} "
-              f"Half-life: {result['half_life']}H Mean Reversion Target Price: {result['mean_reversion_target_price']} "
-              f"Mean Reversion Ratio: {result['mean_reversion_ratio']} {tick_icon}")
+              f"Half-life: {result['half_life']}H Mean Reversion Ratio: {result['mean_reversion_ratio']} {tick_icon}")
