@@ -3,6 +3,7 @@
 import os
 from statsmodels.tsa.stattools import coint
 import pandas as pd
+from tqdm import tqdm  # For progress bar
 
 TICKERS_DIR = 'Binance/Tickers'
 
@@ -22,18 +23,16 @@ def run_cointegration_analysis():
     pairs = [{"Ax": tickers[i], "Bx": tickers[j]} for i in range(len(tickers)) for j in range(i + 1, len(tickers))]
 
     passing_pairs = []
-    for pair in pairs:
+    for pair in tqdm(pairs, desc="Calculating Cointegration"):
         file_a = os.path.join(TICKERS_DIR, f"{pair['Ax']}.csv")
         file_b = os.path.join(TICKERS_DIR, f"{pair['Bx']}.csv")
         data_a = load_data(file_a)
         data_b = load_data(file_b)
 
-        # Align data and check if data is valid
         if data_a is None or data_b is None:
             continue
         aligned_data_a, aligned_data_b = align_data(data_a, data_b)
 
-        # Perform Engle-Granger cointegration test
         _, p_value, _ = coint(aligned_data_a, aligned_data_b)
         if p_value < 0.05:
             passing_pairs.append({
