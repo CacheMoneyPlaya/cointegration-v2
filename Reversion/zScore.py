@@ -97,7 +97,6 @@ def chart_zscore(pair_name, z_scores):
 
 def run_zscore_analysis(passing_pairs):
     """Run Z-score and half-life analysis on pairs meeting p-value criteria."""
-    clear_charts_directory()
 
     results = []
     for pair in tqdm(passing_pairs, desc="Calculating Z-Scores and Half-Lives"):

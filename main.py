@@ -5,6 +5,7 @@ import os
 from DataUtils.tickerUtils import get_usdt_symbols
 from DataUtils.candleUtils import save_symbols_to_csv, fetch_all_time_series_data, clear_existing_csv_files
 from StatsDisplay.postStatProcess import process_and_display_stats
+from Reversion.zScore import clear_charts_directory
 
 TICKERS_DATA_DIR = 'Binance/Tickers'
 
@@ -42,6 +43,8 @@ if __name__ == "__main__":
     parser.add_argument("--reuse", action="store_true", help="Skip data fetching but update available tickers.")
     parser.add_argument("--limit", type=int, help="Limit the number of tickers to download data for.")
     args = parser.parse_args()
+
+    clear_charts_directory()
 
     if args.test:
         # Run immediately and exit if --test flag is provided
