@@ -3,29 +3,26 @@ import schedule
 import argparse
 import os
 from DataUtils.tickerUtils import get_usdt_symbols
-from DataUtils.candleUtils import save_symbols_to_csv, fetch_all_time_series_data, clear_existing_csv_files
+from DataUtils.candleUtils import save_symbols_to_csv, fetch_all_candle_data, clear_existing_csv_files
 from StatsDisplay.postStatProcess import process_and_display_stats
 from Reversion.zScore import clear_charts_directory
 
 TICKERS_DATA_DIR = 'Binance/Tickers'
 
 def fetch_and_process_data(reuse=False, limit=None):
-    # Step 1: Always fetch and save the list of ticker symbols to regenerate the active tickers CSV
     symbols = get_usdt_symbols()
 
-    # Limit the number of symbols if a limit is provided
     if limit is not None:
         symbols = symbols[:limit]
 
-    # Always regenerate the active tickers CSV file
     save_symbols_to_csv(symbols)
 
-    # Step 2: Conditionally clear existing CSV files and fetch OHLCV data if --reuse is not specified
     if not reuse:
         clear_existing_csv_files(TICKERS_DATA_DIR)
-        fetch_all_time_series_data(symbols, '1h', 1000)
+        # Fetching hourly data now
+        fetch_all_candle_data(symbols, '1h', 1000, save=True)
 
-    # Step 3: Run the post-analysis statistics processing
+    # After fetching and saving data, check for CSV files again
     if any(f.endswith('.csv') for f in os.listdir(TICKERS_DATA_DIR)):
         process_and_display_stats()
     else:

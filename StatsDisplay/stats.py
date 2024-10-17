@@ -1,13 +1,26 @@
+import sys
+import os
+
+# Add the parent directory to the system path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import matplotlib
+matplotlib.use('Agg')  # Use the Agg backend for writing to files
+import matplotlib.pyplot as plt
+
 import ccxt
+import numpy as np
 import os
 import csv
 from dotenv import load_dotenv
 from tabulate import tabulate
 from tqdm import tqdm  # Import tqdm for progress bar
 from datetime import datetime
+from DataUtils.candleUtils import fetch_all_candle_data  # Correct import
 
 # Constants
 TRADES_DIR = 'StatsDisplay/Trades'
+CHARTS_DIR = 'StatsDisplay/Charts'  # Directory to save charts
 load_dotenv()
 
 # Initialize Binance client
@@ -16,7 +29,7 @@ exchange = ccxt.binance()
 def get_prices(symbols):
     """Fetch the current prices of given symbols in batch."""
     prices = {}
-    for symbol in tqdm(symbols, desc="Fetching Prices", unit="symbol"):
+    for symbol in tqdm(symbols, desc="Fetching historical data since trade", unit="symbol"):
         try:
             ticker = exchange.fetch_ticker(symbol)
             prices[symbol] = ticker['last'] if 'last' in ticker else None
@@ -70,10 +83,18 @@ def analyze_trade_results(filename):
         print(f"Error: File {csv_file_path} not found.")
         return
 
+    # Extract the timestamp from the filename (assumed format: YYYY-MM-DD-HH-MM-SS.csv)
+    timestamp_str = filename.split('.')[0]  # Extract "YYYY-MM-DD-HH-MM-SS"
+    trade_time = datetime.strptime(timestamp_str, "%Y-%m-%d-%H-%M-%S")
+    current_time = datetime.now()
+    time_since_trade = current_time - trade_time
+    hours_since_trade = time_since_trade.total_seconds() / 3600  # Convert to hours
+
     with open(csv_file_path, mode='r') as file:
         trades = list(csv.DictReader(file))
 
     print(f"\nAnalyzing trade results from file: {filename}\n")
+    print(f"Time since trades taken: {hours_since_trade:.2f} hours\n")
 
     performance_results = []  # List to hold performance results for sorting
     total_profit = 0  # Variable to accumulate total profit/loss percentage
@@ -89,8 +110,10 @@ def analyze_trade_results(filename):
     # Fetch prices for all unique assets
     prices = get_prices(unique_assets)
 
-    # Calculate trade performance with progress bar
-    for trade in tqdm(trades, desc="Calculating Trade Performance", unit="trade"):
+    print(f"\nGenerating performance matrix...\n")
+
+    # Calculate trade performance without progress bar
+    for trade in trades:  # Removed tqdm here
         pair = trade['PAIR']
         side = trade['SIDE']
         half_life = float(trade['HALF_LIFE'])
@@ -128,12 +151,76 @@ def analyze_trade_results(filename):
     # Sort results by profit percentage in descending order
     sorted_results = sorted(performance_results, key=lambda x: float(x[5].replace('%', '')) if isinstance(x[5], str) and '%' in x[5] else float('-inf'), reverse=True)
 
-    # Print the table
-    headers = ["TICKER", "SIDE", "HALF-LIFE", "ENTRY RATIO", "CURRENT RATIO", "PERCENTAGE GAIN/LOSS", "TARGET REACHED"]
-    print(tabulate(sorted_results, headers=headers, tablefmt="grid"))
+    print(f"\nGenerating performance chart...\n")
 
-    # Print net total % gain/loss
-    print(f"\nNet Total Gain/Loss: {total_profit:.2f}%")
+    # Generate performance chart
+    generate_profit_chart(trades, timestamp_str)
+
+    # Store results for later printing
+    return sorted_results, total_profit
+
+def generate_profit_chart(trades, timestamp_str):
+    """Generate a profit chart for every 5 minutes since the trade date."""
+    # Parse the timestamp from the filename
+    trade_time = datetime.strptime(timestamp_str, "%Y-%m-%d-%H-%M-%S")
+    start_time = int(trade_time.timestamp() * 1000)  # Convert to milliseconds
+
+    # Extract unique assets and pairs
+    unique_assets = set()
+    for trade in trades:
+        pair = trade['PAIR']
+        asset_a, asset_b = pair.split('/')
+        unique_assets.add(asset_a)
+        unique_assets.add(asset_b)
+
+    # Fetch historical candle data for each asset from the start time
+    historical_data = fetch_all_candle_data(unique_assets, '5m', limit=None, since=start_time)
+
+    # Initialize cumulative profit
+    cumulative_changes = []
+
+    # Calculate cumulative profits for each asset
+    for trade in trades:
+        pair = trade['PAIR']
+        asset_a, asset_b = pair.split('/')
+
+        historical_a = next((data for symbol, data in zip(unique_assets, historical_data) if symbol == asset_a), None)
+        historical_b = next((data for symbol, data in zip(unique_assets, historical_data) if symbol == asset_b), None)
+
+        if historical_a and historical_b:
+            prices_a = [data[4] for data in historical_a]  # Close prices for asset A
+            prices_b = [data[4] for data in historical_b]  # Close prices for asset B
+
+            # Calculate the pair ratio and percentage changes
+            pair_ratios = [prices_a[i] / prices_b[i] for i in range(len(prices_a)) if prices_b[i] != 0]
+            percentage_changes = [(pair_ratios[i] - pair_ratios[i - 1]) / pair_ratios[i - 1] * 100 for i in range(1, len(pair_ratios))]
+
+            # Cumulative percentage change
+            cumulative_profit = np.cumsum(percentage_changes)
+            cumulative_changes.append(cumulative_profit)
+
+    # Combine cumulative changes from all pairs
+    total_cumulative_profit = np.sum(cumulative_changes, axis=0)
+
+    # Plotting the total cumulative profit as percentage
+    plt.style.use('dark_background')
+    plt.figure(figsize=(10, 5))
+
+    plt.plot(total_cumulative_profit, color='cyan')  # Plot total cumulative profit percentage
+
+    plt.title(f'Total Cumulative Profit Over Time since {timestamp_str}', fontsize=14)
+    plt.xlabel('5-Minute Intervals', fontsize=12)
+    plt.ylabel('Cumulative Profit (%)', fontsize=12)
+    plt.axhline(0, color='white', linestyle='-', label='Profit = 0')
+
+    # Save the chart in the Trades directory
+    trades_directory = os.path.join('StatsDisplay', 'Trades')
+    png_file_name = f"{timestamp_str}.png"  # Use the same name as the CSV file
+    os.makedirs(trades_directory, exist_ok=True)  # Ensure the Trades directory exists
+    plt.savefig(os.path.join(trades_directory, png_file_name))
+    plt.close()  # Close the figure to avoid display
+
+    print(f"Chart saved as {os.path.join(trades_directory, png_file_name)}")
 
 def main():
     import argparse
@@ -141,7 +228,15 @@ def main():
     parser.add_argument("--file", type=str, required=True, help="The CSV file containing trade data.")
     args = parser.parse_args()
 
-    analyze_trade_results(args.file)
+    # Call analyze_trade_results and capture results and total profit
+    sorted_results, total_profit = analyze_trade_results(args.file)
+
+    # Print the sorted results in a table format
+    headers = ["TICKER", "SIDE", "HALF-LIFE", "ENTRY RATIO", "CURRENT RATIO", "PERCENTAGE GAIN/LOSS", "TARGET REACHED"]
+    print(tabulate(sorted_results, headers=headers, tablefmt="grid"))
+
+    # Print net total % gain/loss
+    print(f"\nNet Total Gain/Loss: {total_profit:.2f}%")
 
 if __name__ == "__main__":
     main()
