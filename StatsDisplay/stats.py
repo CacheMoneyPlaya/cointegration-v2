@@ -1,8 +1,10 @@
 import ccxt
 import os
 import csv
-from datetime import datetime
 from dotenv import load_dotenv
+from tabulate import tabulate
+from tqdm import tqdm  # Import tqdm for progress bar
+from datetime import datetime
 
 # Constants
 TRADES_DIR = 'StatsDisplay/Trades'
@@ -11,26 +13,27 @@ load_dotenv()
 # Initialize Binance client
 exchange = ccxt.binance()
 
-def get_price(symbol):
-    """Fetch the current price of a given symbol."""
-    ticker = exchange.fetch_ticker(symbol)
+def get_prices(symbols):
+    """Fetch the current prices of given symbols in batch."""
+    prices = {}
+    for symbol in tqdm(symbols, desc="Fetching Prices", unit="symbol"):
+        try:
+            ticker = exchange.fetch_ticker(symbol)
+            prices[symbol] = ticker['last'] if 'last' in ticker else None
+        except Exception as e:
+            print(f"Error fetching price for {symbol}: {e}")
+            prices[symbol] = None
+    return prices
 
-    # Check if 'last' is available in the ticker
-    if 'last' in ticker:
-        return ticker['last']
-    else:
-        print(f"Warning: No data for {symbol}.")
-        return None  # Return None instead of "No Data"
-
-def calculate_trade_performance(pair, side, half_life, mean_reversion_ratio, trade_price_ratio):
+def calculate_trade_performance(pair, side, half_life, mean_reversion_ratio, trade_price_ratio, prices):
     """Calculate performance based on current ratio or mean reversion target if achieved."""
     asset_a, asset_b = pair.split('/')
-    asset_a_price = get_price(asset_a)
-    asset_b_price = get_price(asset_b)
+
+    asset_a_price = prices.get(asset_a)
+    asset_b_price = prices.get(asset_b)
 
     # Handle cases where price data is not available
     if asset_a_price is None or asset_b_price is None:
-        print(f"Skipping performance calculation for {pair} due to missing price data.")
         return {
             "pair": pair,
             "side": side,
@@ -45,18 +48,10 @@ def calculate_trade_performance(pair, side, half_life, mean_reversion_ratio, tra
     current_ratio = asset_a_price / asset_b_price
 
     # Check if the mean reversion ratio has been reached or exceeded
-    if (side == "long" and current_ratio >= mean_reversion_ratio) or (side == "short" and current_ratio <= mean_reversion_ratio):
-        target_ratio_reached = True
-        target_ratio = mean_reversion_ratio
-    else:
-        target_ratio_reached = False
-        target_ratio = current_ratio
+    target_ratio_reached = (side == "long" and current_ratio >= mean_reversion_ratio) or (side == "short" and current_ratio <= mean_reversion_ratio)
 
     # Calculate profit percentage based on trade price ratio
-    if side == "long":
-        profit_percent = ((target_ratio - trade_price_ratio) / trade_price_ratio) * 100
-    else:  # short position
-        profit_percent = ((trade_price_ratio - target_ratio) / trade_price_ratio) * 100
+    profit_percent = ((current_ratio - trade_price_ratio) / trade_price_ratio) * 100 if side == "long" else ((trade_price_ratio - current_ratio) / trade_price_ratio) * 100
 
     return {
         "pair": pair,
@@ -67,8 +62,6 @@ def calculate_trade_performance(pair, side, half_life, mean_reversion_ratio, tra
         "profit_percent": profit_percent,
         "target_ratio_reached": target_ratio_reached,
     }
-
-from tabulate import tabulate
 
 def analyze_trade_results(filename):
     csv_file_path = os.path.join(TRADES_DIR, filename)
@@ -85,14 +78,26 @@ def analyze_trade_results(filename):
     performance_results = []  # List to hold performance results for sorting
     total_profit = 0  # Variable to accumulate total profit/loss percentage
 
+    # Extract unique assets to fetch prices in batch
+    unique_assets = set()
     for trade in trades:
+        pair = trade['PAIR']
+        asset_a, asset_b = pair.split('/')
+        unique_assets.add(asset_a)
+        unique_assets.add(asset_b)
+
+    # Fetch prices for all unique assets
+    prices = get_prices(unique_assets)
+
+    # Calculate trade performance with progress bar
+    for trade in tqdm(trades, desc="Calculating Trade Performance", unit="trade"):
         pair = trade['PAIR']
         side = trade['SIDE']
         half_life = float(trade['HALF_LIFE'])
         mean_reversion_ratio = float(trade['MEAN_REVERSION_RATIO'])
         trade_price_ratio = float(trade['TRADE_PRICE_RATIO'])
 
-        performance = calculate_trade_performance(pair, side, half_life, mean_reversion_ratio, trade_price_ratio)
+        performance = calculate_trade_performance(pair, side, half_life, mean_reversion_ratio, trade_price_ratio, prices)
 
         # Prepare values for output
         current_ratio = performance['current_ratio']
