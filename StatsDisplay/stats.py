@@ -141,6 +141,7 @@ def analyze_trade_results(filename):
             f"{trade_price_ratio:.5f}",
             current_ratio_output,
             profit_percent_output,
+            mean_reversion_ratio,
             target_reached_output
         ])
 
@@ -232,7 +233,7 @@ def main():
     sorted_results, total_profit = analyze_trade_results(args.file)
 
     # Print the sorted results in a table format
-    headers = ["TICKER", "SIDE", "HALF-LIFE", "ENTRY RATIO", "CURRENT RATIO", "PERCENTAGE GAIN/LOSS", "TARGET REACHED"]
+    headers = ["TICKER", "SIDE", "HALF-LIFE", "ENTRY RATIO", "CURRENT RATIO", "PERCENTAGE GAIN/LOSS", "MEAN REVERSION RATIO", "TARGET REACHED"]
     print(tabulate(sorted_results, headers=headers, tablefmt="grid"))
 
     # Print net total % gain/loss

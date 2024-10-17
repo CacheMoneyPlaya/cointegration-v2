@@ -110,7 +110,10 @@ def run_zscore_analysis(passing_pairs):
         spread = np.log(aligned_data_a / aligned_data_b)
 
         z_scores = calculate_zscore(spread)
-        if abs(z_scores.iloc[-1]) < 2:
+        last_z_score = abs(z_scores.iloc[-1])
+
+        # Modify the condition to only allow z-scores between 1.2 and 2.5
+        if last_z_score < 1.2 or last_z_score > 2.5:
             continue
 
         half_life = calculate_half_life(spread)
