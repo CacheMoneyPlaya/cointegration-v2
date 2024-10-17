@@ -66,7 +66,7 @@ def fetch_and_save_candle_data(symbol, timeframe, limit, since=None):
     ohlcv = fetch_candle_data(symbol, timeframe, limit, since)  # Fetch the data
     if ohlcv:  # Only save if there is data
         save_candle_data(symbol, ohlcv)  # Save the fetched data
-        print(f"{symbol} ✅")  # Print confirmation of download
+        print(f"{symbol} ✅\n")
 
 def fetch_all_candle_data(symbols, timeframe, limit, since=None, save=False):
     """Fetch and optionally save time series data"""
