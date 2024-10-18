@@ -14,7 +14,7 @@ load_dotenv('baskets.env')
 BASKETS = {
     'CHINESE_BASED': os.getenv('CHINESE_BASED').split(','),
     'DEFI': os.getenv('DEFI').split(','),
-    'GAMING_METAVERSE': os.getenv('GAMING_METAVERSE').split(','),
+    'GAMING_METAVERSE': os.getenv('GAMING_METAVERSE').split(','),  # Keep it but ensure the color is valid
     'LAYER1_PROTOCOLS': os.getenv('LAYER1_PROTOCOLS').split(','),
     'LAYER2_SCALING': os.getenv('LAYER2_SCALING').split(','),
     'PRIVACY_COINS': os.getenv('PRIVACY_COINS').split(','),
@@ -26,7 +26,7 @@ BASKETS = {
 COLORS = {
     'CHINESE_BASED': 'red',
     'DEFI': 'blue',
-    'GAMING_METAVERSE': 'orange',
+    'GAMING_METAVERSE': 'yellow',  # Changed from orange to yellow
     'LAYER1_PROTOCOLS': 'purple',
     'LAYER2_SCALING': 'green',
     'PRIVACY_COINS': 'pink',
@@ -34,6 +34,7 @@ COLORS = {
     'INFRASTRUCTURE_ORACLES': 'white',
     'NFT_COLLECTIBLES': 'brown'
 }
+
 
 TRADES_DIR = 'StatsDisplay/Trades'
 TICKERS_DIR = 'Binance/Tickers'
