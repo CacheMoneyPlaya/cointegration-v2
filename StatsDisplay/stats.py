@@ -1,5 +1,6 @@
 import sys
 import os
+import pandas as pd
 
 # Add the parent directory to the system path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,7 +17,7 @@ from dotenv import load_dotenv
 from tabulate import tabulate
 from tqdm import tqdm  # Import tqdm for progress bar
 from datetime import datetime
-from DataUtils.candleUtils import fetch_all_candle_data  # Correct import
+from DataUtils.candleUtils import fetch_all_candle_data, fetch_candle_data  # Correct import
 
 # Constants
 TRADES_DIR = 'StatsDisplay/Trades'
@@ -155,64 +156,89 @@ def analyze_trade_results(filename):
     print(f"\nGenerating performance chart...\n")
 
     # Generate performance chart
-    generate_profit_chart(trades, timestamp_str)
+    # generate_profit_chart(trades, timestamp_str)
 
     # Store results for later printing
     return sorted_results, total_profit
 
 def generate_profit_chart(trades, timestamp_str):
-    """Generate a profit chart for every 5 minutes since the trade date."""
+    """Generate a profit chart that shows net % profit across all trades."""
     # Parse the timestamp from the filename
     trade_time = datetime.strptime(timestamp_str, "%Y-%m-%d-%H-%M-%S")
     start_time = int(trade_time.timestamp() * 1000)  # Convert to milliseconds
 
-    # Extract unique assets and pairs
-    unique_assets = set()
+    # Prepare a list to hold DataFrames for each trade
+    profit_dfs = []
+
+    # Extract unique pairs and process trades
     for trade in trades:
-        pair = trade['PAIR']
-        asset_a, asset_b = pair.split('/')
-        unique_assets.add(asset_a)
-        unique_assets.add(asset_b)
-
-    # Fetch historical candle data for each asset from the start time
-    historical_data = fetch_all_candle_data(unique_assets, '5m', limit=None, since=start_time)
-
-    # Initialize cumulative profit
-    cumulative_changes = []
-
-    # Calculate cumulative profits for each asset
-    for trade in trades:
-        pair = trade['PAIR']
+        pair = trade['PAIR'].strip()  # Remove any extra spaces
+        side = trade['SIDE'].strip()   # Remove any extra spaces
         asset_a, asset_b = pair.split('/')
 
-        historical_a = next((data for symbol, data in zip(unique_assets, historical_data) if symbol == asset_a), None)
-        historical_b = next((data for symbol, data in zip(unique_assets, historical_data) if symbol == asset_b), None)
+        # Debugging output
+        print(f"Fetching historical data for: {asset_a}, {asset_b}, Side: {side}")
 
-        if historical_a and historical_b:
-            prices_a = [data[4] for data in historical_a]  # Close prices for asset A
-            prices_b = [data[4] for data in historical_b]  # Close prices for asset B
+        # Fetch historical candle data for both assets from the start time
+        historical_a = fetch_candle_data(asset_a, '5m', limit=None, since=start_time)
+        historical_b = fetch_candle_data(asset_b, '5m', limit=None, since=start_time)
 
-            # Calculate the pair ratio and percentage changes
-            pair_ratios = [prices_a[i] / prices_b[i] for i in range(len(prices_a)) if prices_b[i] != 0]
-            percentage_changes = [(pair_ratios[i] - pair_ratios[i - 1]) / pair_ratios[i - 1] * 100 for i in range(1, len(pair_ratios))]
+        # Check if data was fetched correctly
+        if historical_a is None or historical_b is None:
+            print(f"Warning: No historical data for {asset_a} or {asset_b}. Skipping...")
+            continue
 
-            # Cumulative percentage change
-            cumulative_profit = np.cumsum(percentage_changes)
-            cumulative_changes.append(cumulative_profit)
+        # Convert to DataFrames
+        df_a = pd.DataFrame(historical_a, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df_b = pd.DataFrame(historical_b, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
 
-    # Combine cumulative changes from all pairs
-    total_cumulative_profit = np.sum(cumulative_changes, axis=0)
+        # Convert timestamps to datetime
+        df_a['timestamp'] = pd.to_datetime(df_a['timestamp'], unit='ms')
+        df_b['timestamp'] = pd.to_datetime(df_b['timestamp'], unit='ms')
 
-    # Plotting the total cumulative profit as percentage
+        # Merge the two DataFrames on timestamp
+        merged_df = pd.merge_asof(df_a.sort_values('timestamp'), df_b.sort_values('timestamp'), on='timestamp', suffixes=('_a', '_b'))
+
+        # Calculate the profit ratio based on the trade side
+        if side.upper() == 'LONG':
+            merged_df['profit_ratio'] = (merged_df['close_a'] / merged_df['close_b'])
+        elif side.upper() == 'SHORT':
+            merged_df['profit_ratio'] = (merged_df['close_b'] / merged_df['close_a'])
+
+        # Calculate percentage change from the entry point
+        merged_df['percentage_change'] = (merged_df['profit_ratio'] - merged_df['profit_ratio'].iloc[0]) / merged_df['profit_ratio'].iloc[0] * 100
+
+        # Handle NaN values by filling them with 0 for calculations
+        merged_df['percentage_change'].fillna(0, inplace=True)
+
+        # Add the DataFrame to the profit_dfs list
+        profit_dfs.append(merged_df[['timestamp', 'percentage_change']])
+
+    # Combine all DataFrames into one
+    if not profit_dfs:
+        print("No valid profit DataFrames to combine.")
+        return
+
+    overall_profit_df = profit_dfs[0]
+    for df in profit_dfs[1:]:
+        overall_profit_df = pd.merge_asof(overall_profit_df.sort_values('timestamp'), df.sort_values('timestamp'), on='timestamp', suffixes=('', '_new'))
+
+        # Ensure the new percentage_change column exists
+        if 'percentage_change_new' in overall_profit_df.columns:
+            overall_profit_df['percentage_change'] += overall_profit_df['percentage_change_new'].fillna(0)
+
+    # Plotting the overall cumulative profit as percentage
     plt.style.use('dark_background')
     plt.figure(figsize=(10, 5))
 
-    plt.plot(total_cumulative_profit, color='cyan')  # Plot total cumulative profit percentage
+    plt.plot(overall_profit_df['timestamp'], overall_profit_df['percentage_change'], color='cyan', label='Total Cumulative Profit')  # Plot total cumulative profit percentage
 
     plt.title(f'Total Cumulative Profit Over Time since {timestamp_str}', fontsize=14)
     plt.xlabel('5-Minute Intervals', fontsize=12)
     plt.ylabel('Cumulative Profit (%)', fontsize=12)
     plt.axhline(0, color='white', linestyle='-', label='Profit = 0')
+    plt.legend()
+    plt.grid()
 
     # Save the chart in the Trades directory
     trades_directory = os.path.join('StatsDisplay', 'Trades')
@@ -222,6 +248,7 @@ def generate_profit_chart(trades, timestamp_str):
     plt.close()  # Close the figure to avoid display
 
     print(f"Chart saved as {os.path.join(trades_directory, png_file_name)}")
+
 
 def main():
     import argparse

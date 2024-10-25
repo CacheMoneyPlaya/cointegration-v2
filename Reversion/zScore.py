@@ -1,5 +1,3 @@
-# zScore.py
-
 import os
 import numpy as np
 import pandas as pd
@@ -20,6 +18,9 @@ CHARTS_DIR = 'StatsDisplay/SignalCharts'
 AUTO_CORRELATION_THRESHOLD = 0.1
 FREQUENCY_THRESHOLD = 0.7
 LAG_INTERVAL = 24
+
+# ATR threshold to filter out volatile pairs
+# ATR_THRESHOLD = 0.5  # Example threshold, adjust based on your criteria
 
 def load_data(file_path):
     """Load CSV data into a pandas DataFrame."""
@@ -95,9 +96,22 @@ def chart_zscore(pair_name, z_scores):
     plt.savefig(os.path.join(CHARTS_DIR, f"{pair_name}.png"))
     plt.close()
 
+def calculate_atr(prices, period=14):
+    """Calculate the Average True Range (ATR) for a given period."""
+    high = prices['High']
+    low = prices['Low']
+    close = prices['Close']
+
+    tr1 = high - low
+    tr2 = abs(high - close.shift())
+    tr3 = abs(low - close.shift())
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    atr = true_range.rolling(window=period).mean()
+    return atr
+
 def run_zscore_analysis(passing_pairs):
     """Run Z-score and half-life analysis on pairs meeting p-value criteria."""
-
     results = []
     for pair in tqdm(passing_pairs, desc="Calculating Z-Scores and Half-Lives"):
         file_a = os.path.join(TICKERS_DIR, f"{pair['Ax']}.csv")
@@ -108,7 +122,6 @@ def run_zscore_analysis(passing_pairs):
         aligned_data_a, aligned_data_b = align_data(data_a, data_b)
 
         spread = np.log(aligned_data_a / aligned_data_b)
-
         z_scores = calculate_zscore(spread)
         last_z_score = abs(z_scores.iloc[-1])
 
@@ -116,12 +129,24 @@ def run_zscore_analysis(passing_pairs):
         if last_z_score < 1.2 or last_z_score > 2.5:
             continue
 
+        # Calculate ATR for the pairs
+        combined_data = pd.DataFrame({
+            'High': np.maximum(aligned_data_a, aligned_data_b),
+            'Low': np.minimum(aligned_data_a, aligned_data_b),
+            'Close': aligned_data_a  # or aligned_data_b based on your preference
+        })
+        atr = calculate_atr(combined_data)
+
+        # # Filter out pairs that are too volatile based on ATR
+        # if atr.iloc[-1] > ATR_THRESHOLD:
+        #     continue
+
         half_life = calculate_half_life(spread)
         if half_life is None or half_life > 24:
             continue
 
         has_dominant_frequency = (
-            1 if check_dominant_frequency(z_scores) else 0
+            1 if check_periodic_autocorrelation(z_scores) else 0
         )
 
         # Skip pairs without a dominant frequency
