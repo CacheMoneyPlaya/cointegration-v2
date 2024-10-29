@@ -4,16 +4,20 @@ import csv
 import ccxt
 from dotenv import load_dotenv
 import time
+from DataUtils.tickerUtils import get_bitget_usdt_symbols  # Import from tickerUtils
 
 # Load API keys from .env file
 load_dotenv()
 ACCESS_KEY = os.getenv("BITGET_ACCESS_KEY")
 SECRET_KEY = os.getenv("BITGET_SECRET_KEY")
+PASSWORD = os.getenv("BITGET_PASSWORD")  # Load the passphrase
 
 # Initialize Bitget API using ccxt
 exchange = ccxt.bitget({
     'apiKey': ACCESS_KEY,
     'secret': SECRET_KEY,
+    'password': PASSWORD,
+    'options': {'defaultType': 'swap'},
     'enableRateLimit': True,
 })
 
@@ -33,57 +37,92 @@ def save_trade_id(pair, side, trade_id, amount):
         writer.writerow([pair, side, trade_id, amount])
     print(f"Trade saved: {pair} {side} with ID {trade_id}")
 
-def execute_trade(pair, side, amount_per_ticker, retries=3):
-    """Execute a long or short trade on each ticker separately in the pair."""
+def execute_trade(pair, side, monetary_value_per_ticker, leverage=10, retries=3):
+    """Execute a long or short trade on each individual ticker in the pair with leveraged monetary exposure."""
     base, quote = pair.split('/')
-    leverage = 10
+    margin_coin = 'USDT'  # Set the margin coin for USDT-margined futures
 
-    # Set leverage on both tickers
-    exchange.set_leverage(leverage, base)
-    exchange.set_leverage(leverage, quote)
-    trade_id_base = None
-    trade_id_quote = None
+    # Configure Bitget to handle market buy orders without a price argument
+    exchange.options['createMarketBuyOrderRequiresPrice'] = False
+    exchange.options['defaultType'] = 'swap'  # Reconfirm swap type for futures
 
-    # Retry logic for executing trades
+    # Reformat symbols with 'TICKER/USDT:USDT' format
+    base_symbol = f"{base.replace('USDT', '')}/USDT:USDT"
+    quote_symbol = f"{quote.replace('USDT', '')}/USDT:USDT"
+
+    # Retrieve market data to ensure minimum precision is met
+    base_market = exchange.market(base_symbol)
+    quote_market = exchange.market(quote_symbol)
+    min_base_amount = base_market['limits']['amount']['min']
+    min_quote_amount = quote_market['limits']['amount']['min']
+
+    # Calculate the leveraged dollar equivalent for each side of the trade
+    leveraged_value = monetary_value_per_ticker * leverage  # Apply leverage
+
+    # Get the latest market prices to calculate the actual trade amounts
+    base_price = exchange.fetch_ticker(base_symbol)['last']
+    quote_price = exchange.fetch_ticker(quote_symbol)['last']
+
+    # Ensure both sides meet the minimum constraints for trading volume
+    base_amount = max(leveraged_value / base_price, min_base_amount)
+    quote_amount = max(leveraged_value / quote_price, min_quote_amount)
+
+    # Set leverage for each ticker
+    try:
+        exchange.set_leverage(leverage, base_symbol, params={'marginCoin': margin_coin})
+        exchange.set_leverage(leverage, quote_symbol, params={'marginCoin': margin_coin})
+        print(f"Leverage set to {leverage}x for {base_symbol} and {quote_symbol}")
+    except Exception as e:
+        print(f"Error setting leverage for {base_symbol} and {quote_symbol}: {e}")
+        return
+
+    # Place individual trades on `base` and `quote`
+    order_type = 'market'
+    base_params = {'type': 'swap', 'marginCoin': margin_coin, 'hedged': False, "oneWayMode": True, "marginMode": "isolated"}
+    quote_params = {'type': 'swap', 'marginCoin': margin_coin, 'hedged': False, "oneWayMode": True, "marginMode": "isolated"}
+
     for attempt in range(retries):
         try:
             if side == 'long':
-                # Long base and short quote for hedging
-                order_base = exchange.create_market_buy_order(base, amount_per_ticker)
-                order_quote = exchange.create_market_sell_order(quote, amount_per_ticker)
+                order_base = exchange.create_order(base_symbol, order_type, 'buy', base_amount, None, base_params)
+                order_quote = exchange.create_order(quote_symbol, order_type, 'sell', quote_amount, None, quote_params)
             else:
-                # Short base and long quote for hedging
-                order_base = exchange.create_market_sell_order(base, amount_per_ticker)
-                order_quote = exchange.create_market_buy_order(quote, amount_per_ticker)
+                order_base = exchange.create_order(base_symbol, order_type, 'sell', base_amount, None, base_params)
+                order_quote = exchange.create_order(quote_symbol, order_type, 'buy', quote_amount, None, quote_params)
 
             trade_id_base = order_base['id']
             trade_id_quote = order_quote['id']
-            print(f"Executed {side} trade for {base} with trade ID: {trade_id_base}")
-            print(f"Executed {side} trade for {quote} with trade ID: {trade_id_quote}")
+            save_trade_id(base, side, trade_id_base, base_amount)
+            save_trade_id(quote, side, trade_id_quote, quote_amount)
+            print(f"Executed {side} trade for {base_symbol} with trade ID: {trade_id_base}")
+            print(f"Executed {side} trade for {quote_symbol} with trade ID: {trade_id_quote}")
             break
 
         except Exception as e:
-            print(f"Error executing {side} trade for {base}/{quote} on attempt {attempt + 1}: {e}")
-            time.sleep(1)  # Wait before retrying
+            print(f"Error executing {side} trade for {base_symbol} and {quote_symbol} on attempt {attempt + 1}: {e}")
+            time.sleep(1)  # Wait before retrying if there's an error
 
-    # Save trade details if successful
-    if trade_id_base and trade_id_quote:
-        save_trade_id(base, side, trade_id_base, amount_per_ticker)
-        save_trade_id(quote, side, trade_id_quote, amount_per_ticker)
-    else:
+    if not trade_id_base or not trade_id_quote:
         print(f"Failed to execute trade for {pair} after {retries} attempts.")
 
 def calculate_trade_amount(balance, risk_pct, num_tickers):
-    """Calculate the amount allocated per ticker based on risk percentage."""
+    """Calculate the monetary value allocated per ticker based on risk percentage."""
     allocated_balance = balance * (risk_pct / 100)
-    amount_per_ticker = allocated_balance / num_tickers
-    return amount_per_ticker
+    monetary_value_per_ticker = allocated_balance / num_tickers
+    return monetary_value_per_ticker
 
 def get_account_balance():
     """Fetch total account balance in USDT."""
     balance = exchange.fetch_balance()
-    usdt_balance = balance['total']['USDT']
-    return usdt_balance
+
+    # Access 'available' in the 'info' section
+    usdt_available = None
+    if 'info' in balance and isinstance(balance['info'], list) and balance['info']:
+        usdt_available = float(balance['info'][0].get('available', 0))
+    else:
+        print("Could not find 'available' balance in balance data.")
+
+    return usdt_available
 
 def parse_trades_file(trades_file):
     """Parse the CSV file to get pairs and trading directions."""
@@ -106,7 +145,7 @@ def main():
     account_balance = get_account_balance()
     trades = parse_trades_file(args.trades)
     num_tickers = len(trades) * 2  # Each pair has two tickers (hedged positions)
-    amount_per_ticker = calculate_trade_amount(account_balance, args.risk_pct, num_tickers)
+    monetary_value_per_ticker = calculate_trade_amount(account_balance, args.risk_pct, num_tickers)
 
     # Initialize or clear the active trades file
     clear_active_trades_file()
@@ -114,7 +153,7 @@ def main():
     # Execute each trade in the CSV file
     for pair, side in trades:
         try:
-            execute_trade(pair, side, amount_per_ticker)
+            execute_trade(pair, side, monetary_value_per_ticker)
         except Exception as e:
             print(f"Error executing trade for {pair}: {str(e)}")
 
