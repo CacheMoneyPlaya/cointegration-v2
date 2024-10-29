@@ -1,5 +1,3 @@
-# cointegration.py
-
 import os
 from statsmodels.tsa.stattools import coint
 import pandas as pd
@@ -8,9 +6,10 @@ from tqdm import tqdm  # For progress bar
 TICKERS_DIR = 'Binance/Tickers'
 
 def load_data(file_path):
-    """Load CSV data into a pandas DataFrame."""
+    """Load CSV data into a pandas DataFrame and ensure it has at least 1000 rows."""
     df = pd.read_csv(file_path)
-    return df['Close'] if 'Close' in df.columns else None
+    # Only return data if it has at least 1000 rows
+    return df['Close'] if 'Close' in df.columns and len(df) >= 1000 else None
 
 def align_data(df1, df2):
     """Align two DataFrames based on their timestamps."""
@@ -29,8 +28,10 @@ def run_cointegration_analysis():
         data_a = load_data(file_a)
         data_b = load_data(file_b)
 
+        # Skip pair if either ticker has insufficient data
         if data_a is None or data_b is None:
             continue
+
         aligned_data_a, aligned_data_b = align_data(data_a, data_b)
 
         _, p_value, _ = coint(aligned_data_a, aligned_data_b)

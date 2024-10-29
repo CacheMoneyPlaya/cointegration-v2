@@ -58,6 +58,8 @@ def calculate_trade_performance(pair, side, half_life, mean_reversion_ratio, tra
             "target_ratio_reached": False,
         }
 
+    print(asset_a, asset_a_price)
+    print(asset_b, asset_b_price)
     # Calculate the current ratio
     current_ratio = asset_a_price / asset_b_price
 
