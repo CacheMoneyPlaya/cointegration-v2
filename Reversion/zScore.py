@@ -135,7 +135,7 @@ def run_zscore_analysis(passing_pairs):
             'Low': np.minimum(aligned_data_a, aligned_data_b),
             'Close': aligned_data_a  # or aligned_data_b based on your preference
         })
-        atr = calculate_atr(combined_data)
+        # atr = calculate_atr(combined_data)
 
         # # Filter out pairs that are too volatile based on ATR
         # if atr.iloc[-1] > ATR_THRESHOLD:
