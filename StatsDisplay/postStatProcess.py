@@ -27,14 +27,13 @@ COLORS = {
     'CHINESE_BASED': 'red',
     'DEFI': 'blue',
     'GAMING_METAVERSE': 'yellow',  # Changed from orange to yellow
-    'LAYER1_PROTOCOLS': 'purple',
+    'LAYER1_PROTOCOLS': 'magenta',  # Changed from purple to magenta
     'LAYER2_SCALING': 'green',
-    'PRIVACY_COINS': 'pink',
+    'PRIVACY_COINS': 'cyan',  # Changed from pink to cyan as pink isn't available
     'STABLECOINS': 'yellow',
     'INFRASTRUCTURE_ORACLES': 'white',
-    'NFT_COLLECTIBLES': 'brown'
+    'NFT_COLLECTIBLES': 'grey'  # Changed from brown to grey
 }
-
 
 TRADES_DIR = 'StatsDisplay/Trades'
 TICKERS_DIR = 'Binance/Tickers'
@@ -78,60 +77,76 @@ def process_and_display_stats():
     csv_file_path = os.path.join(TRADES_DIR, f"{timestamp}.csv")
     trades = []
 
-    # Step 4: Display and record results
-    print("\nGenerated pair metrics:")
+    # Step 4: Collect initial trade entries
     for result in zscore_results:
         asset_a = result['Ax']
         asset_b = result['Bx']
         side = "long" if result["Z_score"] < 0 else "short"
+        half_life = result['half_life']
 
-        # Fetch the latest prices from CSV
+        # Fetch prices and calculate trade price ratio
         current_price_a = get_latest_price_from_csv(asset_a)
         current_price_b = get_latest_price_from_csv(asset_b)
-
-        # Calculate the current price ratio
         if current_price_a is not None and current_price_b is not None:
             current_price_ratio = round(current_price_a / current_price_b, 5)
         else:
             print(f"Warning: Skipping pair {asset_a}/{asset_b} due to missing data.")
-            continue  # Skip this pair if prices are not available
+            continue
 
-        # Add the trade entry data to list for CSV
+        # Add trade entry to list
         trades.append({
             "PAIR": f"{asset_a}/{asset_b}",
+            "ASSET_A": asset_a,
+            "ASSET_B": asset_b,
             "SIDE": side,
-            "HALF_LIFE": result['half_life'],
+            "HALF_LIFE": half_life,
             "MEAN_REVERSION_RATIO": result['mean_reversion_ratio'],
             "TRADE_PRICE_RATIO": current_price_ratio
         })
 
-        # Color output based on basket
-        basket_a = find_basket(asset_a)
-        basket_b = find_basket(asset_b)
-        if basket_a and basket_a == basket_b:
-            color = COLORS.get(basket_a, None)
-            output = colored(
-                f"{asset_a} / {asset_b} - p: {result['p_value']:.4f} Z: {result['Z_score']} "
-                f"Half-life: {result['half_life']}H Mean Reversion Ratio: {result['mean_reversion_ratio']} "
-                f"TRADE_PRICE_RATIO: {current_price_ratio} ✅ ({side.upper()})",
-                color
-            ) if color else (
-                f"{asset_a} / {asset_b} - p: {result['p_value']:.4f} Z: {result['Z_score']} "
-                f"Half-life: {result['half_life']}H Mean Reversion Ratio: {result['mean_reversion_ratio']} "
-                f"TRADE_PRICE_RATIO: {current_price_ratio} ✅ ({side.upper()})"
-            )
-        else:
-            output = (
-                f"{asset_a} / {asset_b} - p: {result['p_value']:.4f} Z: {result['Z_score']} "
-                f"Half-life: {result['half_life']}H Mean Reversion Ratio: {result['mean_reversion_ratio']} "
-                f"TRADE_PRICE_RATIO: {current_price_ratio} ✅ ({side.upper()})"
-            )
-        print(output)
+    # Step 5: Resolve conflicting positions for each asset
+    asset_sides = {}  # Track the chosen side and lowest total half-life for each asset
+    filtered_trades = []
 
-    # Step 5: Write trades to CSV
+    for trade in trades:
+        asset_a, asset_b = trade["ASSET_A"], trade["ASSET_B"]
+        side = trade["SIDE"]
+        half_life = trade["HALF_LIFE"]
+
+        # Check if the asset already has a recorded side
+        if asset_a in asset_sides:
+            # Skip conflicting trade if current side doesn't match recorded side
+            if asset_sides[asset_a]["side"] != side:
+                continue
+        else:
+            asset_sides[asset_a] = {"side": side, "total_half_life": half_life}
+
+        if asset_b in asset_sides:
+            if asset_sides[asset_b]["side"] != side:
+                continue
+        else:
+            asset_sides[asset_b] = {"side": side, "total_half_life": half_life}
+
+        # If side matches for asset, add to the filtered list
+        filtered_trades.append(trade)
+
+    # Step 6: Display and save filtered trades
+    output_trades = []
+    for trade in filtered_trades:
+        output_trades.append({
+            "PAIR": trade["PAIR"],
+            "SIDE": trade["SIDE"],
+            "HALF_LIFE": trade["HALF_LIFE"],
+            "MEAN_REVERSION_RATIO": trade["MEAN_REVERSION_RATIO"],
+            "TRADE_PRICE_RATIO": trade["TRADE_PRICE_RATIO"]
+        })
+
+        print(f"{trade['PAIR']} - {trade['SIDE'].upper()} - Half-life: {trade['HALF_LIFE']}, Mean Reversion Ratio: {trade['MEAN_REVERSION_RATIO']}, Trade Price Ratio: {trade['TRADE_PRICE_RATIO']}")
+
+    # Step 7: Save final trade signals to CSV
     with open(csv_file_path, mode='w', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=["PAIR", "SIDE", "HALF_LIFE", "MEAN_REVERSION_RATIO", "TRADE_PRICE_RATIO"])
         writer.writeheader()
-        writer.writerows(trades)
+        writer.writerows(output_trades)
 
     print(f"\nTrade signals saved to {csv_file_path}")
